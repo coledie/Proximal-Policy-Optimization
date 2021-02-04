@@ -1,7 +1,46 @@
 """
-Proximal policy optimization. PPO-clip version.
+Proximal policy optimization with a clipped objective function.
 - on-policy
+- model based
 - continuous
+
+Proximal policy optimization takes an agent's behavior policy
+represented in a deep neural network and tunes it as a whole
+via gradient descent. This is a model(neural network) based,
+on-policy reinforcement learning approach to learning to play games.
+
+In this, two separate neural networks are used, a policy network that
+determines how the agent will react to the environment and a value
+network that approximates the long term value of a given state assuming
+the current policy is used.
+The value network simply learns to approximate long term, potential
+rewards that come after the state by using the current policy.
+This is learned via gradient descent on the mean squared error
+between its output and the calculated rewards-to-go. Based on the
+approximated state values, the policy network's gradients are calculated
+with respect to the advantage function between the state's predicted value
+and the earned rewards-to-go. The advantage will be positive if the actions
+taken in the current episode earned a higher total reward than expected,
+otherwise negative.
+Therefore if there is a positive change in the networks policy,
+its behavior will be reinforced and further solidified.
+Though these advantages can be pretty volatile and hard to learn off of.
+Thus in standard PPO this factor is modulated by a policy change ratio
+that determines how different the current policy is to the old. This
+limits the speed of policy changes. In PPO-Clip(implemented here) the
+advantages are further stabilized by normalizing and setting bounds
+to them, preventing any sudden jumps in network parameters.
+
+On-policy methods(PPO) have pros over off-policy methods(Q-Learning).
+They consider the decisions made as a whole instead of separate unrelated
+steps. This is crucial in scenarios where it is necessary to take actions
+that are less optimal in the short run but will lead to long term gains.
+Model based approaches using neural networks also have the benefit that
+they can handle continuous state and action spaces. On top of this the
+neural models are more capable of understanding the environment they
+interact with. This allows them to carry knowledge on how certain actions
+will play out over time, giving them a bit of memory and saving much time
+unnecessarily retrying the same patterns.
 
 https://spinningup.openai.com/en/latest/algorithms/ppo.html
 https://medium.com/swlh/coding-ppo-from-scratch-with-pytorch-part-2-4-f9d8b8aa938a
@@ -45,7 +84,7 @@ if __name__ == '__main__':
     Sucess Metric
     -------------
     Bellman resisual approaching 0.
-    Longer cartpole trials.
+    Longer cartpole trials, >=200.
     """
     np.random.seed(0)
     torch.manual_seed(0)
@@ -61,12 +100,12 @@ if __name__ == '__main__':
     GAMMA = .95
     EPSILON_CLIP = .2
 
+    ##
     env = gym.make('CartPole-v0')
-    action_space = [i for i in range(env.action_space.n)]
-
     N_INPUT = 4
-    N_ACTION = env.action_space.n
     LATENT_SIZE = 64
+    N_ACTION = env.action_space.n
+    action_space = [i for i in range(env.action_space.n)]
 
     policy = NN([N_INPUT, LATENT_SIZE, LATENT_SIZE, N_ACTION], [nn.Tanh(), nn.Tanh(), nn.Softmax(dim=-1)])
     policy_old = deepcopy(policy)
@@ -90,7 +129,7 @@ if __name__ == '__main__':
             observation = env.reset()
             state = normalize(observation)
             for l in range(EPISODE_LEN):
-                policy_choice = policy(state) + .000000000001
+                policy_choice = policy(state) + 1e-10
                 action = np.random.choice(action_space, p=policy_choice.detach().numpy() / float(policy_choice.sum()))
                 observation, reward, done, info = env.step(action)
                 state_next = normalize(observation)
@@ -101,7 +140,6 @@ if __name__ == '__main__':
                 state = state_next
 
                 n_steps += 1
-
                 if done or n_steps == EPOCH_STEPS:
                     break
 
@@ -131,7 +169,7 @@ if __name__ == '__main__':
         # https://stackoverflow.com/questions/46422845/what-is-the-way-to-understand-proximal-policy-optimization-algorithm-in-rl
         # argmax 1 / NT sum_N sum_T min(pi_theta / pi_theta_k * A^pi_theta_k, g(epsilon, A^pi_theta_k))
         # -> w += gradient. Invert loss output
-        # PPO Clip adds clippsed surrogate objective as replacement for
+        # PPO Clip adds clipped surrogate objective as replacement for
         # policy gradient objective. This improves stability by limiting
         # change you make to policy at each step.
         # Vanilla pg uses log p of action to trace impact of actions,
@@ -139,7 +177,7 @@ if __name__ == '__main__':
         # r_t(theta) = pi_theta(a_t, s_t) / pi_theta_old(a_t | s_t)
         # Thus L = E[r * advantages]
         # r > 1 if action more probable with current policy, else 1 > r > 0.
-        # to prevent too large steps from oto large r, uses clipped surrogate objective
+        # to prevent too large steps from too large r, uses clipped surrogate objective
         # ie L_clip = E[min(r * advantages, clip(r, 1 - epsilon, 1 + epsilon) * advantages)]
         # epsilon = 2.
         p, p_old = torch.zeros(EPOCH_STEPS), torch.zeros(EPOCH_STEPS)
