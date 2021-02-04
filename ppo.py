@@ -5,7 +5,6 @@ Proximal policy optimization. PPO-clip version.
 
 https://spinningup.openai.com/en/latest/algorithms/ppo.html
 https://medium.com/swlh/coding-ppo-from-scratch-with-pytorch-part-2-4-f9d8b8aa938a
-https://towardsdatascience.com/proximal-policy-optimization-ppo-with-sonic-the-hedgehog-2-and-3-c9c21dbed5e
 https://github.com/nikhilbarhate99/PPO-PyTorch/blob/master/PPO.py
 """
 from copy import deepcopy
@@ -51,12 +50,15 @@ if __name__ == '__main__':
     np.random.seed(0)
     torch.manual_seed(0)
 
+    WIN_SCORE = 200
+    N_TO_WIN = 100
+
     N_EPOCH = 50
     EPOCH_STEPS = 4800
     EPISODE_LEN = 400
 
-    ALPHA = .05
-    GAMMA = .99
+    ALPHA = .005
+    GAMMA = .95
     EPSILON_CLIP = .2
 
     env = gym.make('CartPole-v0')
@@ -104,6 +106,10 @@ if __name__ == '__main__':
                     break
 
             lengths.append(l+1)
+
+            if np.mean(lengths[-N_TO_WIN:]) >= WIN_SCORE:
+                print("Win!")
+
         eps.append(e_count)
 
         print(f"{e}: {np.mean(lengths[-e_count:]):.0f}")
