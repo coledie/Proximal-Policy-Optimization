@@ -51,11 +51,11 @@ if __name__ == '__main__':
     np.random.seed(0)
     torch.manual_seed(0)
 
-    N_EPOCH = 100
+    N_EPOCH = 50
     EPOCH_STEPS = 4800
     EPISODE_LEN = 400
 
-    ALPHA = .005
+    ALPHA = .05
     GAMMA = .99
     EPSILON_CLIP = .2
 
@@ -94,7 +94,7 @@ if __name__ == '__main__':
                 state_next = normalize(observation)
 
                 history.append((state, action, reward, state_next))
-                values[n_steps] = value(state_next)
+                values[n_steps] = value(state)
                 policy_probs[n_steps] = policy_choice
                 state = state_next
 
@@ -136,15 +136,14 @@ if __name__ == '__main__':
         # to prevent too large steps from oto large r, uses clipped surrogate objective
         # ie L_clip = E[min(r * advantages, clip(r, 1 - epsilon, 1 + epsilon) * advantages)]
         # epsilon = 2.
-        p, p_old = torch.zeros(EPOCH_STEPS, requires_grad=True), torch.zeros(EPOCH_STEPS, requires_grad=False)
+        p, p_old = torch.zeros(EPOCH_STEPS), torch.zeros(EPOCH_STEPS)
         for i, (s, a, _, _) in enumerate(history):
-            with torch.no_grad():
-                a_idx = action_space.index(a)
-                p[i] = policy_probs[i][a_idx]
-                p_old[i] = policy_old(s)[a_idx]
-        r_theta = p / p_old
+            a_idx = action_space.index(a)
+            p[i] = policy_probs[i][a_idx]
+            p_old[i] = policy_old(s)[a_idx]
+        r_theta = p / p_old.detach()
         r_clip = torch.clamp(r_theta, 1 - EPSILON_CLIP, 1 + EPSILON_CLIP)
-        loss_policy = torch.min(r_theta * advantages, r_clip * advantages).mean()
+        loss_policy = -torch.min(r_theta * advantages, r_clip * advantages).mean()
 
         loss_value = criterion_value(values, rtg)
 
@@ -167,7 +166,7 @@ if __name__ == '__main__':
 
     X = np.arange(len(history))
     ax2.plot(X, values.detach().numpy(), label="v")
-    ax2.plot(X, rtg, label="rtg_norm")
+    ax2.plot(X, rtg, label="rtg")
     ax2.plot(X, advantages.detach().numpy(), label="A")
     ax2.legend()
     plt.show()
