@@ -6,6 +6,7 @@ Proximal policy optimization. PPO-clip version.
 https://spinningup.openai.com/en/latest/algorithms/ppo.html
 https://medium.com/swlh/coding-ppo-from-scratch-with-pytorch-part-2-4-f9d8b8aa938a
 https://towardsdatascience.com/proximal-policy-optimization-ppo-with-sonic-the-hedgehog-2-and-3-c9c21dbed5e
+https://github.com/nikhilbarhate99/PPO-PyTorch/blob/master/PPO.py
 """
 from copy import deepcopy
 import numpy as np
@@ -16,6 +17,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 class NN(nn.Module):
@@ -54,32 +56,35 @@ if __name__ == '__main__':
     EPISODE_LEN = 400
 
     ALPHA = .005
-    GAMMA = .95
+    GAMMA = .99
     EPSILON_CLIP = .2
 
     env = gym.make('CartPole-v0')
     action_space = [i for i in range(env.action_space.n)]
 
     N_INPUT = 4
-    N_ACTION = len(action_space)
+    N_ACTION = env.action_space.n
+    LATENT_SIZE = 64
 
-    policy = NN([N_INPUT, N_ACTION], [F.relu])
+    policy = NN([N_INPUT, LATENT_SIZE, LATENT_SIZE, N_ACTION], [nn.Tanh(), nn.Tanh(), nn.Softmax(dim=-1)])
     policy_old = deepcopy(policy)
-    value = NN([N_INPUT, 1], [torch.tanh, lambda x: x])
+    value = NN([N_INPUT, LATENT_SIZE, LATENT_SIZE, 1], [nn.Tanh(), nn.Tanh(), lambda x: x])
 
     opt_policy = optim.Adam(policy.parameters(), lr=ALPHA)
     criterion_value = nn.MSELoss()
     opt_value = optim.Adam(value.parameters(), lr=ALPHA)
 
-    lengths = []
+    lengths, eps = [], []
     for e in range(N_EPOCH):
         opt_policy.zero_grad()
         opt_value.zero_grad()
 
         # 3. Compute trajectories D by running current policy
         n_steps = 0
+        e_count = 0
         histories, values, policy_probs = [], [], []
         while n_steps < EPOCH_STEPS:
+            e_count += 1
             h, v, p = [], torch.empty(EPISODE_LEN), torch.empty((EPISODE_LEN, len(action_space)))
             observation = env.reset()
             state = normalize(observation)
@@ -104,6 +109,7 @@ if __name__ == '__main__':
             histories.append(h)
             values.append(v)
             policy_probs.append(p)
+        eps.append(e_count)
 
         print(f"{e}: {lengths[-1]}")
 
@@ -172,10 +178,19 @@ if __name__ == '__main__':
         opt_policy.step()
         opt_value.step()
 
+    fig = plt.figure()
+    ax1 = fig.add_subplot(211)
+    ax2 = fig.add_subplot(212)
+
+    eps_scatter = []
+    for i, v in enumerate(eps):
+        eps_scatter.extend([i for _ in range(v)])
+    sns.violinplot(eps_scatter, lengths, ax=ax1)
+
     V = torch.Tensor([value(s) for s, _, _, _ in histories[-1]]).detach()
     X = np.arange(len(V))
-    plt.plot(X, V, label="v")
-    plt.plot(X, rtg[-1] / rtg[-1].max(), label="rtg_norm")
-    plt.plot(X, advantages[-1], label="A")
-    plt.legend()
+    ax2.plot(X, V, label="v")
+    ax2.plot(X, rtg[-1] / rtg[-1].max(), label="rtg_norm")
+    ax2.plot(X, advantages[-1], label="A")
+    ax2.legend()
     plt.show()
