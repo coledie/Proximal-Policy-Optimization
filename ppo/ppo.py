@@ -139,9 +139,6 @@ if __name__ == '__main__':
     Bellman resisual approaching 0.
     Longer cartpole trials, >=200.
     """
-    np.random.seed(0)
-    torch.manual_seed(0)
-
     N_EPOCH = 50
     ALPHA = .005
 
