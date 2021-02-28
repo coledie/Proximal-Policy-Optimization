@@ -23,18 +23,16 @@ class ActorCritic(nn.Module):
         Compute actor trajectories by running current policy.
         """
         n_steps, e_count = 0, 0
-        self.history, self.values, self.policy_probs = [], torch.zeros(self.epoch_steps), torch.zeros((self.epoch_steps, len(self.action_space)))
+        self.history, self.values = [], torch.zeros(self.epoch_steps)
         while n_steps < self.epoch_steps:
             e_count += 1
             state = env.reset()
             for l in range(self.episode_len):
-                policy_choice = self.actor(state) + 1e-10
-                action = np.random.choice(self.action_space, p=policy_choice.detach().numpy() / float(policy_choice.sum()))
+                action = self.actor.act(state)
                 state_next, reward, done, info = env.step(action)
 
                 self.history.append((state, action, reward, state_next))
                 self.values[n_steps] = self.critic(state)
-                self.policy_probs[n_steps] = policy_choice
                 state = state_next
 
                 n_steps += 1
@@ -78,5 +76,5 @@ class ActorCritic(nn.Module):
         rtg = self.rtg()
         advantages = self.advantages(rtg)
 
-        self.actor.step(self.history, self.policy_probs, advantages)
-        self.critic.step(self.values, rtg)
+        self.actor.step(self.history, advantages)
+        self.critic.step(self.history, self.values, rtg)

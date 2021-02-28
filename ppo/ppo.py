@@ -61,19 +61,28 @@ torch.manual_seed(0)
 
 
 class Actor(nn.Module):
-    def __init__(self, layers, activations, alpha, action_space, epsilon_clip):
+    def __init__(self, layers, activations, alpha, action_space, epsilon_clip, epoch_steps):
         super().__init__()
         self.action_space = action_space
         self.epsilon_clip = epsilon_clip
+        self.epoch_steps = epoch_steps
         self.nn = NN(layers, activations)
-        self.opt = optim.Adam(self.nn.parameters(), lr=alpha)
-
         self.nn_old = deepcopy(self.nn)
+        self.opt = optim.Adam(self.nn.parameters(), lr=alpha)
+        self.policy_probs = torch.zeros((self.epoch_steps, len(self.action_space)))
+        self.time = 0
 
     def forward(self, x):
         return self.nn(x)
 
-    def step(self, history, policy_probs, advantages):
+    def act(self, state):
+        policy_choice = self.nn(state) + 1e-10
+        action = np.random.choice(self.action_space, p=policy_choice.detach().numpy() / float(policy_choice.sum()))
+        self.policy_probs[self.time] = policy_choice
+        self.time += 1
+        return action
+
+    def step(self, history, advantages):
         """
         Update policy via maximize ppo-clip objective
         https://stackoverflow.com/questions/46422845/what-is-the-way-to-understand-proximal-policy-optimization-algorithm-in-rl
@@ -93,10 +102,10 @@ class Actor(nn.Module):
         """
         self.opt.zero_grad()
 
-        p, p_old = torch.zeros(len(policy_probs)), torch.zeros(len(policy_probs))
+        p, p_old = torch.zeros(len(self.policy_probs)), torch.zeros(len(self.policy_probs))
         for i, (s, a, _, _) in enumerate(history):
             a_idx = self.action_space.index(a)
-            p[i] = policy_probs[i][a_idx]
+            p[i] = self.policy_probs[i][a_idx]
             p_old[i] = self.nn_old(s)[a_idx]
 
         r_theta = p / p_old.detach()
@@ -107,6 +116,8 @@ class Actor(nn.Module):
         self.opt.step()
 
         self.nn_old = deepcopy(self.nn)
+        self.policy_probs = torch.zeros((self.epoch_steps, len(self.action_space)))
+        self.time = 0
 
 
 class Critic(nn.Module):
@@ -120,7 +131,7 @@ class Critic(nn.Module):
     def forward(self, x):
         return self.nn(x)
 
-    def step(self, values, rtg):
+    def step(self, history, values, rtg):
         """
         Fit value fn via regression on MSE.
         """
@@ -140,6 +151,7 @@ if __name__ == '__main__':
     Longer cartpole trials, >=200.
     """
     N_EPOCH = 50
+    EPOCH_STEPS = 4800
     ALPHA = .005
 
     env = gym.make('CartPole-v0')
@@ -154,7 +166,8 @@ if __name__ == '__main__':
         [nn.Tanh(), nn.Tanh(), nn.Softmax(dim=-1)],
         alpha=ALPHA,
         action_space=action_space,
-        epsilon_clip=.2
+        epsilon_clip=.2,
+        epoch_steps=EPOCH_STEPS,
     )
     critic = Critic(
         [N_INPUT, LATENT_SIZE, LATENT_SIZE, 1],
@@ -166,7 +179,7 @@ if __name__ == '__main__':
         actor,
         critic,
         gamma=.95,
-        epoch_steps=4800,
+        epoch_steps=EPOCH_STEPS,
         episode_len=400,
         win_score=200,
         n_to_win=100,
